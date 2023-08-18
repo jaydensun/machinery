@@ -137,19 +137,15 @@ func (b *Broker) StartConsuming(consumerTag string, concurrency int, taskProcess
 	go func() {
 		defer b.delayedWG.Done()
 
-		var wait bool
 		for {
 			select {
 			// A way to stop this goroutine from b.StopConsuming
 			case <-b.GetStopChan():
 				return
 			default:
-				task, err := b.nextDelayedTask(b.redisDelayedTasksKey, wait)
+				task, err := b.nextDelayedTask(b.redisDelayedTasksKey)
 				if err != nil {
-					wait = true
 					continue
-				} else {
-					wait = false
 				}
 
 				signature := new(tasks.Signature)
@@ -392,7 +388,7 @@ func (b *Broker) nextTask(queue string) (result []byte, err error) {
 
 // nextDelayedTask pops a value from the ZSET key using WATCH/MULTI/EXEC commands.
 // https://github.com/gomodule/redigo/blob/master/redis/zpop_example_test.go
-func (b *Broker) nextDelayedTask(key string, wait bool) (result []byte, err error) {
+func (b *Broker) nextDelayedTask(key string) (result []byte, err error) {
 	conn := b.open()
 	defer conn.Close()
 
@@ -425,11 +421,7 @@ func (b *Broker) nextDelayedTask(key string, wait bool) (result []byte, err erro
 	for {
 		// Space out queries to ZSET so we don't bombard redis
 		// server with relentless ZRANGEBYSCOREs
-		if wait {
-			time.Sleep(time.Duration(pollPeriod) * time.Millisecond)
-		} else {
-			wait = true
-		}
+		time.Sleep(time.Duration(pollPeriod) * time.Millisecond)
 		if _, err = conn.Do("WATCH", key); err != nil {
 			return
 		}
